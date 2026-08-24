@@ -7,8 +7,14 @@ on:
         description: "Episode ID"
         required: true
         type: string
+
       scenes_json:
         description: "Scenes JSON"
+        required: true
+        type: string
+
+      callback_url:
+        description: "n8n callback URL"
         required: true
         type: string
 
@@ -70,3 +76,20 @@ jobs:
           name: kids-video-${{ inputs.episode_id }}
           path: kids_animation_${{ inputs.episode_id }}.mp4
           retention-days: 5
+
+      - name: Notify n8n render complete
+        if: always()
+        continue-on-error: true
+        env:
+          CALLBACK_URL: ${{ inputs.callback_url }}
+          RUN_ID: ${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          echo "Sending render completion callback to n8n..."
+
+          curl -X POST "$CALLBACK_URL" \
+            -H "Content-Type: application/json" \
+            --data "{\"status\":\"completed\",\"conclusion\":\"$JOB_STATUS\",\"run_id\":\"$RUN_ID\",\"episode_id\":\"${{ inputs.episode_id }}\"}" \
+            --max-time 30
+
+          echo "n8n callback sent."
