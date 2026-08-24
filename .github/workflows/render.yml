@@ -1,0 +1,72 @@
+name: Render Kids Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      episode_id:
+        description: "Episode ID"
+        required: true
+        type: string
+      scenes_json:
+        description: "Scenes JSON"
+        required: true
+        type: string
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg jq
+
+      - name: Render video
+        env:
+          SCENES_JSON: ${{ inputs.scenes_json }}
+          EPISODE_ID: ${{ inputs.episode_id }}
+        run: |
+          mkdir -p assets
+          echo "$SCENES_JSON" > scenes.json
+
+          jq -c '.[]' scenes.json | nl -v0 -w1 -s' ' | while read -r i scene; do
+            image=$(echo "$scene" | jq -r '.image_url')
+            audio=$(echo "$scene" | jq -r '.audio_url')
+            duration=$(echo "$scene" | jq -r '.duration')
+
+            curl -L --fail "$image" -o "assets/image_${i}.jpg"
+            curl -L --fail "$audio" -o "assets/audio_${i}.mp3"
+
+            ffmpeg -y \
+              -loop 1 \
+              -i "assets/image_${i}.jpg" \
+              -i "assets/audio_${i}.mp3" \
+              -t "$duration" \
+              -vf "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,format=yuv420p" \
+              -c:v libx264 \
+              -preset veryfast \
+              -pix_fmt yuv420p \
+              -c:a aac \
+              -shortest \
+              "assets/scene_${i}.mp4"
+          done
+
+          find assets -name 'scene_*.mp4' | sort -V | sed 's/^/file /' > concat.txt
+
+          ffmpeg -y \
+            -f concat \
+            -safe 0 \
+            -i concat.txt \
+            -c copy \
+            "kids_animation_${EPISODE_ID}.mp4"
+
+      - name: Upload rendered video
+        uses: actions/upload-artifact@v4
+        with:
+          name: kids-video-${{ inputs.episode_id }}
+          path: kids_animation_${{ inputs.episode_id }}.mp4
+          retention-days: 5
